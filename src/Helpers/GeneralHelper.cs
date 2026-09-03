@@ -30,9 +30,8 @@ namespace AzureNamingTool.Helpers
             {
                 return SourceData!.GetType()!.GetProperty(propName)!.GetValue(SourceData, null);
             }
-            catch (Exception ex)
-            {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+            catch (Exception) {
+                // TODO: Modernize helper - AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 return null;
             }
         }
@@ -120,9 +119,8 @@ namespace AzureNamingTool.Helpers
                 HttpClient httpClient = new();
                 data = await httpClient.GetStringAsync(url);
             }
-            catch (Exception ex)
-            {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+            catch (Exception) {
+                // TODO: Modernize helper - AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 data = "";
             }
             return data;
@@ -173,7 +171,7 @@ namespace AzureNamingTool.Helpers
         /// </summary>
         /// <param name="type">The resource type string</param>
         /// <returns>An array containing the formatted resource type</returns>
-        public static string[] FormatResoureType(string type)
+        public static string[] FormatResourceType(string type)
         {
             String[] returntype = new String[4];
             returntype[0] = type;
@@ -206,9 +204,8 @@ namespace AzureNamingTool.Helpers
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+            catch (Exception) {
+                // TODO: Modernize helper - AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
             }
             return returntype;
         }

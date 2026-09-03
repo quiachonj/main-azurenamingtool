@@ -1,25 +1,43 @@
 ﻿using AzureNamingTool.Helpers;
 using AzureNamingTool.Models;
+using AzureNamingTool.Repositories.Interfaces;
+using AzureNamingTool.Services.Interfaces;
 
 namespace AzureNamingTool.Services
 {
     /// <summary>
     /// Service for managing resource delimiters.
     /// </summary>
-    public class ResourceDelimiterService
+    public class ResourceDelimiterService : IResourceDelimiterService
     {
+        private readonly IConfigurationRepository<ResourceDelimiter> _repository;
+        private readonly IAdminLogService _adminLogService;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ResourceDelimiterService"/> class.
+        /// </summary>
+        /// <param name="repository">The configuration repository for resource delimiters.</param>
+        /// <param name="adminLogService">The admin log service.</param>
+        public ResourceDelimiterService(
+            IConfigurationRepository<ResourceDelimiter> repository,
+            IAdminLogService adminLogService)
+        {
+            _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+            _adminLogService = adminLogService ?? throw new ArgumentNullException(nameof(adminLogService));
+        }
+
         /// <summary>
         /// Retrieves a list of items based on the specified criteria.
         /// </summary>
         /// <param name="admin">A boolean value indicating whether the user is an admin.</param>
         /// <returns>A <see cref="Task{ServiceResponse}"/> representing the asynchronous operation. The task result contains the service response.</returns>
-        public static async Task<ServiceResponse> GetItems(bool admin)
+        public async Task<ServiceResponse> GetItemsAsync(bool admin)
         {
             ServiceResponse serviceResponse = new();
             try
             {
                 // Get list of items
-                var items = await ConfigurationHelper.GetList<ResourceDelimiter>();
+                var items = await _repository.GetAllAsync();
                 if (GeneralHelper.IsNotNull(items))
                 {
                     if (!admin)
@@ -39,7 +57,7 @@ namespace AzureNamingTool.Services
             }
             catch (Exception ex)
             {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+                await _adminLogService.PostItemAsync(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 serviceResponse.Success = false;
                 serviceResponse.ResponseObject = ex;
             }
@@ -51,16 +69,16 @@ namespace AzureNamingTool.Services
         /// </summary>
         /// <param name="id">The ID of the item to retrieve.</param>
         /// <returns>A <see cref="Task{ServiceResponse}"/> representing the asynchronous operation. The task result contains the service response.</returns>
-        public static async Task<ServiceResponse> GetItem(int id)
+        public async Task<ServiceResponse> GetItemAsync(int id)
         {
             ServiceResponse serviceResponse = new();
             try
             {
                 // Get list of items
-                var items = await ConfigurationHelper.GetList<ResourceDelimiter>();
+                var items = await _repository.GetAllAsync();
                 if (GeneralHelper.IsNotNull(items))
                 {
-                    var item = items.Find(x => x.Id == id);
+                    var item = items.FirstOrDefault(x => x.Id == id);
                     if (GeneralHelper.IsNotNull(item))
                     {
                         serviceResponse.ResponseObject = item;
@@ -78,7 +96,7 @@ namespace AzureNamingTool.Services
             }
             catch (Exception ex)
             {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+                await _adminLogService.PostItemAsync(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 serviceResponse.Success = false;
                 serviceResponse.ResponseObject = ex;
             }
@@ -89,16 +107,16 @@ namespace AzureNamingTool.Services
         /// Gets the current item from the list of resource delimiters.
         /// </summary>
         /// <returns>A <see cref="Task{ServiceResponse}"/> representing the asynchronous operation. The task result contains the service response.</returns>
-        public static async Task<ServiceResponse> GetCurrentItem()
+        public async Task<ServiceResponse> GetCurrentItemAsync()
         {
             ServiceResponse serviceResponse = new();
             try
             {
                 // Get list of items
-                var items = await ConfigurationHelper.GetList<ResourceDelimiter>();
+                var items = await _repository.GetAllAsync();
                 if (GeneralHelper.IsNotNull(items))
                 {
-                    serviceResponse.ResponseObject = items.OrderBy(y => y.SortOrder).OrderByDescending(y => y.Enabled).ToList()[0];
+                    serviceResponse.ResponseObject = items.OrderBy(y => y.SortOrder).OrderByDescending(y => y.Enabled).First();
                     serviceResponse.Success = true;
                 }
                 else
@@ -108,7 +126,7 @@ namespace AzureNamingTool.Services
             }
             catch (Exception ex)
             {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+                await _adminLogService.PostItemAsync(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 serviceResponse.Success = false;
                 serviceResponse.ResponseObject = ex;
             }
@@ -120,19 +138,26 @@ namespace AzureNamingTool.Services
         /// </summary>
         /// <param name="item">The item to be posted.</param>
         /// <returns>A <see cref="Task{ServiceResponse}"/> representing the asynchronous operation. The task result contains the service response.</returns>
-        public static async Task<ServiceResponse> PostItem(ResourceDelimiter item)
+        public async Task<ServiceResponse> PostItemAsync(ResourceDelimiter item)
         {
             ServiceResponse serviceResponse = new();
             try
             {
                 // Get list of items
-                var items = await ConfigurationHelper.GetList<ResourceDelimiter>();
+                var itemsEnumerable = await _repository.GetAllAsync();
+                if (itemsEnumerable == null)
+                {
+                    serviceResponse.ResponseObject = "Resource Delimiters not found!";
+                    return serviceResponse;
+                }
+                var items = itemsEnumerable.ToList();
                 if (GeneralHelper.IsNotNull(items))
                 {
                     // Set the new id
                     if (item.Id == 0)
                     {
-                        item.Id = items.Count + 1;
+                        // Use max ID + 1 instead of count + 1 to avoid ID collisions after deletions
+                        item.Id = items.Count > 0 ? items.Max(x => x.Id) + 1 : 1;
                     }
                     item.Enabled = true;
                     int position = 1;
@@ -146,14 +171,13 @@ namespace AzureNamingTool.Services
                     if (items.Count > 0)
                     {
                         // Check if the item already exists
-                        if (items.Exists(x => x.Id == item.Id))
+                        if (items.Any(x => x.Id == item.Id))
                         {
                             // Remove the updated item from the list
-                            var existingitem = items.Find(x => x.Id == item.Id);
+                            var existingitem = items.FirstOrDefault(x => x.Id == item.Id);
                             if (GeneralHelper.IsNotNull(existingitem))
                             {
-                                int index = items.IndexOf(existingitem);
-                                items.RemoveAt(index);
+                                items.Remove(existingitem);
                             }
 
                             // Reset the sort order of the list
@@ -168,10 +192,11 @@ namespace AzureNamingTool.Services
                             }
 
                             // Check for the new sort order
-                            if (items.Exists(x => x.SortOrder == item.SortOrder))
+                            var existingAtPosition = items.FirstOrDefault(x => x.SortOrder == item.SortOrder);
+                            if (existingAtPosition != null)
                             {
-                                // Remove the updated item from the list
-                                items.Insert(items.IndexOf(items.FirstOrDefault(x => x.SortOrder == item.SortOrder)!), item);
+                                // Insert at the specified position
+                                items.Insert(items.IndexOf(existingAtPosition), item);
                             }
                             else
                             {
@@ -181,23 +206,40 @@ namespace AzureNamingTool.Services
                         }
                         else
                         {
-                            item.Id = 1;
-                            item.SortOrder = 1;
+                            // Add new item - ID was already set above
+                            item.SortOrder = items.Count + 1;
+                            
+                            // Disable other items if this new item is enabled
+                            if (item.Enabled)
+                            {
+                                foreach (var existingItem in items)
+                                {
+                                    existingItem.Enabled = false;
+                                }
+                            }
+                            
                             items.Add(item);
                         }
-
-                        position = 1;
-                        foreach (ResourceDelimiter thisitem in items.OrderBy(x => x.SortOrder).ToList())
-                        {
-                            thisitem.SortOrder = position;
-                            position += 1;
-                        }
-
-                        // Write items to file
-                        await ConfigurationHelper.WriteList<ResourceDelimiter>(items);
-                        serviceResponse.ResponseObject = "Resource Delimiter added/updated!";
-                        serviceResponse.Success = true;
                     }
+                    else
+                    {
+                        // Add first item to empty list
+                        item.SortOrder = 1;
+                        items.Add(item);
+                    }
+
+                    // Normalize sort order
+                    position = 1;
+                    foreach (ResourceDelimiter thisitem in items.OrderBy(x => x.SortOrder).ToList())
+                    {
+                        thisitem.SortOrder = position;
+                        position += 1;
+                    }
+
+                    // Write items to file
+                    await _repository.SaveAllAsync(items);
+                    serviceResponse.ResponseObject = "Resource Delimiter added/updated!";
+                    serviceResponse.Success = true;
                 }
                 else
                 {
@@ -206,7 +248,7 @@ namespace AzureNamingTool.Services
             }
             catch (Exception ex)
             {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+                await _adminLogService.PostItemAsync(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 serviceResponse.ResponseObject = ex;
                 serviceResponse.Success = false;
             }
@@ -218,7 +260,7 @@ namespace AzureNamingTool.Services
         /// </summary>
         /// <param name="items">The list of resource delimiters to be configured.</param>
         /// <returns>A <see cref="Task{ServiceResponse}"/> representing the asynchronous operation. The task result contains the service response.</returns>
-        public static async Task<ServiceResponse> PostConfig(List<ResourceDelimiter> items)
+        public async Task<ServiceResponse> PostConfigAsync(List<ResourceDelimiter> items)
         {
             ServiceResponse serviceResponse = new();
             try
@@ -244,7 +286,7 @@ namespace AzureNamingTool.Services
                 // Make sure all the delimiters are present
                 for (int k = 0; k <= delimiters.GetUpperBound(0); k++)
                 {
-                    if (!newitems.Exists(x => x.Name == delimiters[k, 0] && x.Delimiter == delimiters[k, 1]))
+                    if (!newitems.Any(x => x.Name == delimiters[k, 0] && x.Delimiter == delimiters[k, 1]))
                     {
                         // Create a delimiter object 
                         ResourceDelimiter newitem = new()
@@ -268,12 +310,12 @@ namespace AzureNamingTool.Services
                 }
 
                 // Write items to file
-                await ConfigurationHelper.WriteList<ResourceDelimiter>(newitems);
+                await _repository.SaveAllAsync(newitems);
                 serviceResponse.Success = true;
             }
             catch (Exception ex)
             {
-                AdminLogService.PostItem(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
+                await _adminLogService.PostItemAsync(new AdminLogMessage() { Title = "ERROR", Message = ex.Message });
                 serviceResponse.Success = false;
                 serviceResponse.ResponseObject = ex;
             }
